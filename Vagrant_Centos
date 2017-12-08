@@ -27,7 +27,7 @@ end
 config.vm.define "db" do |db|
   db.vm.hostname = "orc-db.dev"
   db.vm.box = "geerlingguy/centos7"
-  db.vm.network :private_network, ip: "192.168.60.7"
+  db.vm.network :private_network, ip: "192.168.60.6"
 end
 
 end
