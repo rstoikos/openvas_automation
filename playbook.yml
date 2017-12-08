@@ -1,0 +1,87 @@
+---
+- hosts: ubuntu
+  sudo: yes
+  
+  tasks:
+  
+  - name: add software-properties-common
+    command: sudo apt install software-properties-common
+
+  - name: add openvas repo
+    command: sudo add-apt-repository ppa:mrazavi/openvas
+
+  - name: apt get update
+    command: sudo apt-get update
+  
+  - name: Install openvas
+    register: out
+    apt: name={{item}} state=latest update_cache=yes
+    with_items:
+    - openvas
+  - debug: var=out.stdout_lines
+  
+  - service:
+      name: redis-server
+      state: started
+
+  - name: fix redis server pid issue
+    command: ln -s  /var/run/redis/redis-server.pid /tmp/redis.sock
+    ignore_errors: yes
+
+  - name: correct redis conf file
+    command: bash -c "echo unixsocketperm 777 >> /etc/redis/redis.conf"
+    ignore_errors: yes
+    
+  - name: fix locale issues
+    command: bash -c "echo LC_ALL=en_US.UTF-8 >> /etc/environment"
+    command: bash -c "echo LANG=en_US.UTF-8 >> /etc/environment" 
+    command: bash -c "echo LC_ALL=en_US.UTF-8 >> /etc/default/locale"
+    command: bash -c "echo LANG=en_US.UTF-8 >> /etc/default/locale" 
+    ignore_errors: yes
+
+  - service:
+      name: redis-server
+      state: restarted 
+
+  - service:
+      name: openvas-scanner
+      state: started
+ 
+  - name: sync NVT
+    command: openvas-nvt-sync # greenbone-nvt-sync
+
+  - name: increase SPLIT_PART_SIZE to avoid error
+    command: bash -c "sed -i "s/SPLIT_PART_SIZE=0/SPLIT_PART_SIZE=16384/g" /usr/sbin/openvas-scapdata-sync"
+  
+  - name: sync scap data
+    command: openvas-scapdata-sync
+    ignore_errors: yes
+
+  - name: sync certdata
+    command: openvas-certdata-sync # greenbone-certdata-sync
+
+  - service:
+      name: openvas-scanner
+      state: restarted
+ 
+  - name: openvasmd command has to be executed
+    command: openvasmd  
+
+  - service:
+      name: openvas-manager
+      state: restarted
+
+  - name: rebuild NVT cache
+    command: openvasmd --rebuild --progress
+
+  - name: copy script
+    copy: src=openvas.py dest=/root/openvas.py mode="0755"
+  
+  - name: Execute script
+    command: python openvas.py chdir=/root
+  
+  - find: paths="/root/" recurse=no patterns="Report*.*html"
+    register: file_to_copy
+  
+  - fetch: src={{ item.path}} dest=/tmp
+    with_items: "{{ file_to_copy.files }}"
